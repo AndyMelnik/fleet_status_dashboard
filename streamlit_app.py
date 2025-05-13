@@ -44,10 +44,14 @@ def fetch_data(engine):
     """
 
     object_query = """
-        SELECT DISTINCT device_id
-        FROM raw_business_data.devices
-        WHERE device_id IS NOT NULL
-        ORDER BY device_id;
+      SELECT DISTINCT 
+    object_label
+FROM 
+    raw_business_data.objects
+WHERE 
+    object_label IS NOT NULL AND is_deleted IS NOT TRUE
+ORDER BY 
+    object_label;
     """
 
     connection_status_query = """
@@ -147,7 +151,7 @@ if st.session_state.get("connected"):
             merged_df = pd.merge(latest_df, status_df[['object_label', 'connection_status', 'last_device_time']], on='object_label', how='left')
 
             # Metrics
-            total_objects = object_df['device_id'].nunique()
+            total_objects = object_df['object_label'].nunique()
             moving_count = (merged_df['moving_status'] == 'Moving').sum()
             stopped_count = (merged_df['moving_status'] == 'Stopped').sum()
             parked_count = (merged_df['moving_status'] == 'Parked').sum()
