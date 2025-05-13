@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-st.title("Live Object Monitoring Dashboard")
+st.title("Fleet Status Dashboard")
 
 # Sidebar: DB connection
 st.sidebar.title("Database Connection")
@@ -44,14 +44,14 @@ def fetch_data(engine):
     """
 
     object_query = """
-      SELECT DISTINCT 
-    object_label
-FROM 
-    raw_business_data.objects
-WHERE 
-    object_label IS NOT NULL AND is_deleted IS NOT TRUE
-ORDER BY 
-    object_label;
+        SELECT DISTINCT 
+            object_label
+        FROM 
+            raw_business_data.objects
+        WHERE 
+            object_label IS NOT NULL AND is_deleted IS NOT TRUE
+        ORDER BY 
+            object_label;
     """
 
     connection_status_query = """
@@ -84,6 +84,7 @@ ORDER BY
 
     tracking_df['device_time'] = pd.to_datetime(tracking_df['device_time'], utc=True)
     status_df['last_device_time'] = pd.to_datetime(status_df['last_device_time'], utc=True)
+
     return tracking_df, object_df, status_df
 
 # Establish connection on Connect
@@ -116,78 +117,92 @@ if st.session_state.get("connected"):
     if update_button:
         tracking_df, object_df, status_df = fetch_data(engine)
 
-        if tracking_df.empty:
-            st.warning("No recent tracking data found.")
-        else:
-            current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(timezone.utc)
+        valid_object_labels = set(object_df['object_label'])
 
-            latest_df = tracking_df.sort_values("device_time", ascending=False).groupby("object_label", as_index=False).first()
+        tracking_df = tracking_df[tracking_df['object_label'].isin(valid_object_labels)].copy()
+        status_df = status_df[status_df['object_label'].isin(valid_object_labels)].copy()
 
-            def classify_movement(row):
-                speed = row['speed_n']
-                time_diff = (current_time - row['device_time']).total_seconds() / 60
-                if speed > max_idle_speed:
-                    return 'Moving'
-                elif time_diff < min_idle_detection:
-                    return 'Stopped'
-                else:
-                    return 'Parked'
+        # Movement status logic
+        latest_df = tracking_df.sort_values("device_time", ascending=False).groupby("object_label", as_index=False).first()
+        full_latest_df = pd.merge(object_df, latest_df, on="object_label", how="left")
 
-            latest_df['moving_status'] = latest_df.apply(classify_movement, axis=1)
+        def classify_movement(row):
+            speed = row.get('speed_n', 0)
+            time = row.get('device_time')
+            if pd.isna(time):
+                return 'No Data'
+            time_diff = (current_time - time).total_seconds() / 60
+            if speed > max_idle_speed:
+                return 'Moving'
+            elif time_diff < min_idle_detection:
+                return 'Stopped'
+            else:
+                return 'Parked'
 
-            # Connection status logic (new logic using status_df)
-            def classify_connection(row):
-                diff = (current_time - row['last_device_time']).total_seconds() / 60
-                if diff <= gps_not_updated_min:
-                    return 'Online'
-                elif gps_not_updated_min < diff <= gps_not_updated_max:
-                    return 'Standby'
-                else:
-                    return 'Offline'
+        full_latest_df['moving_status'] = full_latest_df.apply(classify_movement, axis=1)
 
-            status_df['connection_status'] = status_df.apply(classify_connection, axis=1)
+        # Connection status logic
+        full_status_df = pd.merge(object_df, status_df, on="object_label", how="left")
 
-            # Merge both movement and connection statuses
-            merged_df = pd.merge(latest_df, status_df[['object_label', 'connection_status', 'last_device_time']], on='object_label', how='left')
+        def classify_connection(row):
+            time = row.get('last_device_time')
+            if pd.isna(time):
+                return 'No Signal'
+            diff = (current_time - time).total_seconds() / 60
+            if diff <= gps_not_updated_min:
+                return 'Online'
+            elif gps_not_updated_min < diff <= gps_not_updated_max:
+                return 'Standby'
+            else:
+                return 'Offline'
 
-            # Metrics
-            total_objects = object_df['object_label'].nunique()
-            moving_count = (merged_df['moving_status'] == 'Moving').sum()
-            stopped_count = (merged_df['moving_status'] == 'Stopped').sum()
-            parked_count = (merged_df['moving_status'] == 'Parked').sum()
+        full_status_df['connection_status'] = full_status_df.apply(classify_connection, axis=1)
 
-            online_count = (merged_df['connection_status'] == 'Online').sum()
-            standby_count = (merged_df['connection_status'] == 'Standby').sum()
-            offline_count = (merged_df['connection_status'] == 'Offline').sum()
+        # Merge both together
+        merged_df = pd.merge(full_latest_df, full_status_df[['object_label', 'connection_status', 'last_device_time']], on='object_label', how='left')
 
-            # Display metrics
-            ind1, ind2, ind3, ind4 = st.columns(4)
-            ind1.metric("Total Registered Objects", total_objects)
-            ind2.metric("Moving", moving_count)
-            ind3.metric("Stopped", stopped_count)
-            ind4.metric("Parked", parked_count)
+        # Metrics
+        total_objects = object_df['object_label'].nunique()
+        moving_count = (merged_df['moving_status'] == 'Moving').sum()
+        stopped_count = (merged_df['moving_status'] == 'Stopped').sum()
+        parked_count = (merged_df['moving_status'] == 'Parked').sum()
+        no_data_count = (merged_df['moving_status'] == 'No Data').sum()
 
-            cs1, cs2, cs3, cs4 = st.columns(4)
-            cs2.metric("Online", online_count)
-            cs3.metric("Standby", standby_count)
-            cs4.metric("Offline", offline_count)
+        online_count = (merged_df['connection_status'] == 'Online').sum()
+        standby_count = (merged_df['connection_status'] == 'Standby').sum()
+        offline_count = (merged_df['connection_status'] == 'Offline').sum()
+        no_signal_count = (merged_df['connection_status'] == 'No Signal').sum()
 
-            # Charts
-            pie1_col, pie2_col = st.columns(2)
-            with pie1_col:
-                st.plotly_chart(px.pie(merged_df, names='moving_status', title='Movement Status Distribution'))
-            with pie2_col:
-                st.plotly_chart(px.pie(merged_df, names='connection_status', title='Connection Status Distribution'))
+        # Display metrics
+        ind1, ind2, ind3, ind4 = st.columns(4)
+        ind1.metric("Total Registered Objects", total_objects)
+        ind2.metric("Moving", moving_count)
+        ind3.metric("Stopped", stopped_count)
+        ind4.metric("Parked", parked_count)
 
-            # Table
-            display_df = merged_df[[
-                'object_label', 'latitude', 'longitude', 'speed_n', 'device_time',
-                'last_device_time', 'connection_status', 'moving_status'
-            ]]
-            display_df.columns = [
-                'Object Label', 'Last Latitude', 'Last Longitude', 'Last Speed',
-                'Last Tracking Time', 'Last Device Time', 'Connection Status', 'Moving Status'
-            ]
-            st.dataframe(display_df, use_container_width=True)
+        cs1, cs2, cs3, cs4 = st.columns(4)
+        cs1.metric("No Signal", no_signal_count)
+        cs2.metric("Online", online_count)
+        cs3.metric("Standby", standby_count)
+        cs4.metric("Offline", offline_count)
+
+        # Charts
+        pie1_col, pie2_col = st.columns(2)
+        with pie1_col:
+            st.plotly_chart(px.pie(merged_df, names='moving_status', title='Movement Status Distribution'))
+        with pie2_col:
+            st.plotly_chart(px.pie(merged_df, names='connection_status', title='Connection Status Distribution'))
+
+        # Table
+        display_df = merged_df[[
+            'object_label', 'latitude', 'longitude', 'speed_n', 'device_time',
+            'last_device_time', 'connection_status', 'moving_status'
+        ]]
+        display_df.columns = [
+            'Object Label', 'Last Latitude', 'Last Longitude', 'Last Speed',
+            'Last Tracking Time', 'Last Device Time', 'Connection Status', 'Moving Status'
+        ]
+        st.dataframe(display_df, use_container_width=True)
 else:
     st.info("Please connect to the database to begin.")
