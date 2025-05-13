@@ -44,7 +44,7 @@ def fetch_data(engine):
     """
 
     object_query = """
-        SELECT DISTINCT 
+        SELECT 
             object_label
         FROM 
             raw_business_data.objects
