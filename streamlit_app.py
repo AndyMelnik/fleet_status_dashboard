@@ -44,14 +44,7 @@ def fetch_data(engine):
     """
 
     object_query = """
-        SELECT 
-            object_label
-        FROM 
-            raw_business_data.objects
-        WHERE 
-            object_label IS NOT NULL AND is_deleted IS NOT TRUE
-        ORDER BY 
-            object_label;
+       SELECT object_label FROM raw_business_data.objects WHERE raw_business_data.objects.is_deleted IS NOT TRUE
     """
 
     connection_status_query = """
