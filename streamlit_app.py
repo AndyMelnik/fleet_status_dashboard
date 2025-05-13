@@ -3,7 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime, timezone
 import plotly.express as px
-from streamlit_autorefresh import st_autorefresh
+from streamlit-autorefresh import st_autorefresh
 
 st.set_page_config(layout="wide")
 st.title("Fleet Status Dashboard")
