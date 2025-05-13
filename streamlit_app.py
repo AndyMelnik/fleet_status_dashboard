@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-st.title("Live Object Monitoring Dashboard")
+st.title("Fleet Status Dashboard")
 
 # Sidebar for DB connection
 st.sidebar.title("Database Connection")
@@ -39,12 +39,12 @@ def fetch_data(engine):
         JOIN 
             raw_business_data.objects AS o ON o.device_id = d.device_id
         WHERE 
-            tdc.device_time >= NOW() - INTERVAL '11 minutes'
+            tdc.device_time >= NOW() - INTERVAL '15 minutes'
         ORDER BY 
             tdc.device_time DESC;
     """
     object_query = """
-        SELECT DISTINCT object_label
+        SELECT object_label
         FROM raw_business_data.objects
         WHERE object_label IS NOT NULL
         ORDER BY object_label;
@@ -72,13 +72,13 @@ if st.session_state.get("connected"):
     with st.form(key="params_form"):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            max_idle_speed = st.slider("Max Idle Speed", 0, 10, 2)
+            max_idle_speed = st.slider("Max Idle Speed (km/h)", 0, 10, 2)
         with col2:
             min_idle_detection = st.slider("Min Idle Detection (minutes)", 0, 10, 3)
         with col3:
-            gps_not_updated_min = st.slider("GPS Not Updated Min (minutes)", 0, 10, 2)
+            gps_not_updated_min = st.slider("GPS Not Updated Min (minutes)", 0, 10, 5)
         with col4:
-            gps_not_updated_max = st.slider("GPS Not Updated Max (minutes)", gps_not_updated_min, 10, 5)
+            gps_not_updated_max = st.slider("GPS Not Updated Max (minutes)", gps_not_updated_min, 15, 10)
 
         update_button = st.form_submit_button("Update")
 
